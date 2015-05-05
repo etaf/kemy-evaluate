@@ -3,70 +3,41 @@
 
 from optparse import OptionParser
 import os
+import sys
 import subprocess
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 def get_parameters():
     parser = OptionParser()
     parser.add_option("--result", type="string",dest="result_dir",default="results")
     #parser.add_option("--config", type="string",dest="conffile",default="config/func-eval.tcl")
     parser.add_option("-w","--whiskers",  type="string",dest="whiskers", default=os.path.join(cwd,"/home/lxa/F.3.23"))
-    parser.add_option("--func", type="string", dest="evaluate_func", default = "onoff")
+    parser.add_option("--func", type="string", dest="evaluate_func", default = "light")
     (config, args) = parser.parse_args()
     return config
-
-def func_evaluate(result_dir, candidates, nTCPsrc, nUDPsrc):
-    """functional evaluate"""
-    do_eveal = True
-    if  os.path.exists(result_dir):
-        while True:
-            ret = raw_input("Results already existed, remove and continue ? y/n\t")
-            if ret == 'y':
-                os.system("rm -rf "+result_dir)
-                os.makedirs(result_dir)
-                break
-            elif ret == 'n':
-                do_eveal = False
-                break
-    else:
-        os.makedirs(result_dir)
-    if do_eveal:
-        evaluate(result_dir, "./config/func-eval.tcl", candidates, "Application/FTP", nTCPsrc, nUDPsrc)
-
-    for candidate in candidates:
-        awk_process(result_dir+"/"+candidate)
 
 def light_eval(result_base):
     """light 5 TCP flows simulate 100s"""
     result_dir = os.path.join(result_base, 'light')
-    candidates = ['KEMY','RED','CoDel']
-    func_evaluate(result_dir, candidates, 5, 0)
-
-    graph_base_simtime(result_dir, candidates, "light: 5 TCP Flows")
+    onoff_eval(result_dir, nTCP=5)
 
 def heavy_eval(resut_base):
     """heavy 50 TCP flows simulate 100s"""
     result_dir = os.path.join(result_base, 'heavy')
-    candidates = ['KEMY','RED']
-    func_evaluate(result_dir, candidates, 50, 0)
-    graph_base_simtime(result_dir, candidates, "Heavy: 50 TCP Flows")
-    #graph_box(result_dir, "Heavy: 50 TCP Flows")
-    #graph_cdf(result_dir, "Heavy: 50 TCP Flows")
+    onoff_eval(result_dir, nTCP=50)
 
-def mix_eavl():
+def mix_eavl(result_base):
     """mix 5 TCP + 2 UDP flows simulate 100s"""
     result_dir = os.path.join(result_base, 'mix')
-    candidates = ['KEMY','RED']
-    func_evaluate(result_dir, candidates, 5, 2 )
-    graph_base_simtime(result_dir, candidates, "Mixture: 5 TCP + 2 UDP Flows")
+    onoff_eval(result_dir, nTCP=50)
 
 def burst_eval():
     pass
 
-def onoff_eval(result_base):
+def onoff_eval(result_dir, nTCP=8, nUDP=0, bw=15, rtt=100):
     candidates = ["RED", "CoDel", "PIE", "KEMY"]
-    result_dir = os.path.join(result_base, 'onoff')
     do_eveal = True
     if  os.path.exists(result_dir):
         while True:
@@ -80,17 +51,15 @@ def onoff_eval(result_base):
                 break
     else:
         os.makedirs(result_dir)
-    rtt = 100
     if do_eveal == True:
         for i in xrange(128):
-            evaluate(result_dir, "./config/func-eval.tcl", candidates, "Application/OnOff",5, 0, run= i + 1, delay = rtt/2)
+            evaluate(result_dir, "./config/func-eval.tcl", candidates, "Application/OnOff",nTCP, nUDP, run= i + 1, delay = rtt/2)
         for candidate in candidates:
             result_file = os.path.join(result_dir, candidate)
             subprocess.call(["awk -f ./awks/onoff_throughput.awk " + result_file+" >"  + result_file+".throughput" ], shell=True)
             subprocess.call(["awk -v rtt="+str(rtt)+" -f ./awks/onoff_delay.awk " + result_file+" >"  + result_file+".delay" ], shell=True)
 
     graph_box(result_dir,candidates, "")
-    #graph_cdf(result_dir, "Heavy: 50 TCP Flows")
 
 def rtt_eval(result_base):
     candidates = ["RED", "CoDel", "PIE", "KEMY"]
@@ -141,20 +110,100 @@ def bw_eval(result_base):
     else:
         os.makedirs(result_dir)
 
-    bws = [ 10, 30, 50, 60, 80, 100, 150, 200]
-    delay = 50
-    iter_times = 64
+    bws = [ 5,10, 40, 60, 80, 100, 200]
+    rtt=100
+    sender_num = 8
+    iter_times = 128
     if do_eveal == True:
         for bw in bws:
             for i in xrange(iter_times):
-                evaluate(result_dir, "./config/func-eval.tcl", candidates, "Application/OnOff", 8, 0 ,run= i+1, bw=bw, delay=delay)
-        for candidate in candidates:
-            result_file = os.path.join(result_dir, candidate)
-            subprocess.call(["awk -v senders=8 -v iter="+str(iter_times)+" -f  ./awks/bw_throughput.awk " + result_file+" >"  + result_file+".throughput" ], shell=True)
-            subprocess.call(["awk -v senders=8 -v iter="+str(iter_times)+" -v rtt="+str(delay*2)+" -f ./awks/bw_delay.awk " + result_file+" >"  + result_file+".delay" ], shell=True)
+                evaluate(result_dir, "./config/func-eval.tcl", candidates, "Application/OnOff", sender_num, 0 ,run= i+1, bw=bw, delay=rtt/2)
 
+    graph_type = 1
+    if graph_type == 0:
+        awk_throughput = "./awks/bw_throughput.awk"
+        awk_delay = "./awks/bw_delay.awk"
+    else:
+        awk_throughput = "./awks/onoff_throughput.awk"
+        awk_delay = "./awks/onoff_delay.awk"
+
+    for candidate in candidates:
+        result_file = os.path.join(result_dir, candidate)
+        subprocess.call(["awk -v senders=8 -v iter="+str(iter_times)+" -f  "+awk_throughput+" " + result_file+" >"  + result_file+".throughput" ], shell=True)
+        subprocess.call(["awk -v senders=8 -v iter="+str(iter_times)+" -v rtt="+str(rtt)+" -f "+awk_delay+" " + result_file+" >"  + result_file+".delay" ], shell=True)
+    #graph_multi_box(result_dir, candidates, iter_times, sender_num, bws)
     #graph_box(result_dir,candidates, "")
-    graph_base_bw(result_dir, candidates, "", bws)
+    if(graph_type == 0):
+        graph_base_bw(result_dir, candidates, "", bws)
+    else:
+        graph_group_box(result_dir, candidates, iter_times, sender_num, bws)
+        #graph_multi_box(result_dir, candidates, iter_times, sender_num, bws)
+import pandas as pd
+def construct_Dataframe(result_dir, candidates, M, xticks):
+    xs = []
+    ncandidates = len(candidates)
+    nxticks = len(xticks)
+    for i in xrange(ncandidates):
+        for xtick in xticks:
+            xs = xs + [xtick]*M
+    throughputs = []
+    delays = []
+    aqms = []
+    for candidate in candidates:
+        result_file = os.path.join(result_dir, candidate + "." + "throughput")
+        throughputs = throughputs + np.loadtxt(result_file, unpack = True).tolist()
+        result_file = os.path.join(result_dir, candidate + "." + "delay")
+        delays = delays + np.loadtxt(result_file, unpack = True).tolist()
+        aqms = aqms + [candidate]*( M * nxticks)
+
+    nlen = len(xs)
+    if (nlen!= len(throughputs)) or (nlen != len(delays)) or(nlen != len(aqms)):
+        print "Dataframe: len error!"
+        print nlen, len(throughputs), len(delays), len(aqms)
+        sys.exit(1)
+    return pd.DataFrame(dict(xtick=xs, throughput=throughputs, delay=delays, AQM=aqms))
+def graph_group_box(result_dir, candidates, iter_times,sender_num, xticks):
+    #first construct Dataframe
+    datas = construct_Dataframe(result_dir, candidates, iter_times, xticks)
+    metrics = ['throughput', 'delay']
+    xlabel = "Bottleneck Bandwidth [Mbps]"
+    ylabels = {'throughput':'Goodput [Mbps]','delay':'Queueing Delay [msec]'}
+    for metric in metrics:
+        boxes = sns.factorplot("xtick", metric, "AQM", datas, kind="box", hue_order=candidates, palette="husl");
+        boxes.set_axis_labels(xlabel, ylabels[metric])
+        plt.savefig(os.path.join(result_dir, metric+"-group-box.eps"), format='eps')
+        sns.plt.show()
+def graph_multi_box(result_dir, candidates, iter_times,sender_num, xticks):
+    metrics = ['throughput', 'delay']
+    ylabels = {}
+    ylabels['throughput'] = 'Goodput [Mbps]'
+    ylabels['delay'] = 'Queueing Delay [msec]'
+    for metric in metrics:
+        plt.grid(True)
+        plt.ylabel(ylabels[metric],fontsize=18)
+        i = 0
+        ncandidates = len(candidates)
+        data = [None]*(ncandidates*len(xticks))
+        for candidate in candidates:
+            result_file = os.path.join(result_dir, candidate + "." + metric)
+            tmp = np.loadtxt(result_file, unpack = True)
+            if not tmp.size ==  iter_times*len(xticks):
+                print "result file error"
+                sys.exit(1)
+            t_start = 0
+            for j in xrange(len(xticks)):
+                data[j*ncandidates+i] = tmp[t_start:t_start+iter_times:1]
+                t_start = t_start + iter_times
+            if t_start != iter_times * len(xticks):
+                print "t_start error"
+                sys.exit(1)
+            i = i + 1
+        #boxes= plt.boxplot(data, showfliers = False)
+        sns.boxplot(data)
+        #plt.xticks(range(1,len(candidates)+1), candidates,fontsize=18)
+        plt.savefig(os.path.join(result_dir, metric+"-box.eps"), format='eps')
+        plt.show()
+
 def evaluate(result_dir, conffile, candidates, tcp_app, ntcpsrc, nudpsrc,run=1, bw=15, delay=50):
     """evaluate an AQM by run run-test.tcl """
 
@@ -185,20 +234,6 @@ def evaluate(result_dir, conffile, candidates, tcp_app, ntcpsrc, nudpsrc,run=1, 
 
     for child_p in child_ps:
         child_p.wait()
-
-
-
-def awk_process(result_file):
-    """awk process and graph"""
-
-    # throughput
-    #subprocess.call(["awk -f ./awks/inst_throughput.awk " + result_file+" >"  + result_file+".throughput" ], shell=True)
-    # delay
-    #subprocess.call(["awk -f ./awks/inst_delay.awk " + result_file+" >"  + result_file+".delay" ], shell=True)
-    # drop_rate
-    #subprocess.call(["awk -f ./awks/drop_rate.awk " + result_file+" >"  + result_file+".drop_rate" ], shell=True)
-    #queue length
-    subprocess.call(["awk -f ./awks/inst_qlen.awk " + result_file+" >"  + result_file+".qlen" ], shell=True)
 
 def graph_base_rtt(result_dir, candidates, graph_title, rtts):
     """graph base simulation rtt"""
@@ -294,7 +329,7 @@ def graph_box(result_dir, candidates, graph_title):
     ylabels = {}
     ylabels['throughput'] = 'Goodput [Mbps]'
     ylabels['delay'] = 'Queueing Delay [msec]'
-    colors = ["purple", "pink", "blue"]
+    #colors = ["purple", "pink", "blue"]
     for metric in metrics:
         plt.title(graph_title)
         plt.grid(True)
