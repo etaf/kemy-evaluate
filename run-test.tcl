@@ -52,7 +52,7 @@ proc create-dumbbell-topology {} {
     $ns duplex-link $node_array(0) $node_array(1) ${opt(bw)}Mb ${opt(delay)}ms $opt(gw)
     #set qsize [expr (5 * ${opt(bw)}  * 2 * ${opt(delay)} * 1000.0) / (8 * ($opt(pktsize) + $opt(hdrsize)))]
     $ns queue-limit $node_array(0) $node_array(1) $opt(qlimit)
-    $ns queue-limit $node_array(1) $node_array(0) 65536
+    $ns queue-limit $node_array(1) $node_array(0) $opt(qlimit)
     set bt_aqm [[$ns link $node_array(0) $node_array(1)] queue]
 
     if { [info exists opt(qmon)] } {
